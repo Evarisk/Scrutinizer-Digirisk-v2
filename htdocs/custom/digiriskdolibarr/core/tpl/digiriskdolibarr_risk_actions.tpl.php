@@ -1,29 +1,33 @@
 <?php
 if (!$error && $action == 'add' && $permissiontoadd) {
-	$riskComment = GETPOST('riskComment', 'restricthtml');
+
+	$data        = json_decode(file_get_contents('php://input'), true);
+
 	$fk_element  = GETPOST('id');
-	$ref         = GETPOST('ref');
-	$cotation    = GETPOST('cotation');
-	$method      = GETPOST('cotationMethod');
-	$category    = GETPOST('category');
-	$photo       = GETPOST('photo');
+	$riskComment = $data['description'];
+	$cotation    = $data['cotation'];
+	$method      = $data['method'];
+	$category    = $data['category'];
+	$photo       = $data['photo'];
 
 	if ($riskComment !== 'undefined') {
 		$risk->description = $riskComment;
 	}
-	$risk->fk_element  = $fk_element ? $fk_element : 0;
+
+	$risk->fk_element  = $fk_element ?: 0;
 	$risk->fk_projet   = $conf->global->DIGIRISKDOLIBARR_DU_PROJECT;
 	$risk->category    = $category;
 	$risk->ref         = $refRiskMod->getNextValue($risk);
+	$risk->status      = 1;
 
 	if (!$error) {
-		$result = $risk->create($user, true);
+		$result = $risk->create($user);
 
 		if ($result > 0) {
 			$lastRiskAdded = $risk->ref;
 
-			$evaluationComment  = GETPOST('evaluationComment',  'restricthtml');
-			$riskAssessmentDate = GETPOST('riskAssessmentDate');
+			$evaluationComment  = $data['comment'];
+			$riskAssessmentDate = $data['date'];
 
 			$evaluation->photo               = $photo;
 			$evaluation->cotation            = $cotation;
@@ -32,14 +36,14 @@ if (!$error && $action == 'add' && $permissiontoadd) {
 			$evaluation->method              = $method;
 			$evaluation->ref                 = $refEvaluationMod->getNextValue($evaluation);
 			$evaluation->comment             = $evaluationComment;
-			$evaluation->date_riskassessment = strtotime(preg_replace('/\//', '-',$riskAssessmentDate));
+			$evaluation->date_riskassessment = $riskAssessmentDate != 'undefined' ? strtotime(preg_replace('/\//', '-',$riskAssessmentDate)) : dol_now();
 
 			if ($method == 'advanced') {
-				$formation  = GETPOST('formation');
-				$protection = GETPOST('protection');
-				$occurrence = GETPOST('occurrence');
-				$gravite    = GETPOST('gravite');
-				$exposition = GETPOST('exposition');
+				$formation  = $data['criteres']['formation'];
+				$protection = $data['criteres']['protection'];
+				$occurrence = $data['criteres']['occurrence'];
+				$gravite    = $data['criteres']['gravite'];
+				$exposition = $data['criteres']['exposition'];
 
 				$evaluation->formation  = $formation;
 				$evaluation->protection = $protection;
@@ -48,7 +52,6 @@ if (!$error && $action == 'add' && $permissiontoadd) {
 				$evaluation->exposition = $exposition;
 			}
 
-
 			$pathToTmpPhoto = $conf->digiriskdolibarr->multidir_output[$conf->entity] . '/riskassessment/tmp/RK0/';
 			$files = dol_dir_list($pathToTmpPhoto);
 
@@ -56,21 +59,20 @@ if (!$error && $action == 'add' && $permissiontoadd) {
 				foreach($files as $file) {
 					$pathToEvaluationPhoto =$conf->digiriskdolibarr->multidir_output[$conf->entity] .  '/riskassessment/' . $evaluation->ref;
 
-					mkdir($pathToEvaluationPhoto);
-					copy($file['fullname'],$pathToEvaluationPhoto . '/' . $file['name']);
+					if (!is_dir($pathToEvaluationPhoto)) {
+						mkdir($pathToEvaluationPhoto);
+					}
+					if (!is_file($pathToEvaluationPhoto . '/' . $file['name'])) {
+						copy($file['fullname'],$pathToEvaluationPhoto . '/' . $file['name']);
+					}
 
 					global $maxwidthmini, $maxheightmini, $maxwidthsmall,$maxheightsmall ;
 					$destfull = $pathToEvaluationPhoto . '/' . $file['name'];
 
 					// Create thumbs
-					// We can't use $object->addThumbs here because there is no $object known
-					// Used on logon for example
 					$imgThumbSmall = vignette($destfull, $maxwidthsmall, $maxheightsmall, '_small', 50, "thumbs");
-					// Create mini thumbs for image (Ratio is near 16/9)
-					// Used on menu or for setup page for example
 					$imgThumbMini = vignette($destfull, $maxwidthmini, $maxheightmini, '_mini', 50, "thumbs");
 					unlink($file['fullname']);
-
 				}
 			}
 			$filesThumbs = dol_dir_list($pathToTmpPhoto . '/thumbs/');
@@ -81,11 +83,10 @@ if (!$error && $action == 'add' && $permissiontoadd) {
 				}
 			}
 
-
 			$result2 = $evaluation->create($user, true);
 
 			if ($result2 > 0) {
-				$tasktitle = GETPOST('tasktitle');
+				$tasktitle = $data['task'];
 				if (!empty($tasktitle) && $tasktitle !== 'undefined') {
 					$extrafields->fetch_name_optionals_label($task->table_element);
 
@@ -102,7 +103,6 @@ if (!$error && $action == 'add' && $permissiontoadd) {
 						$urltogo = str_replace('__ID__', $result3, $backtopage);
 						$urltogo = preg_replace('/--IDFORBACKTOPAGE--/', $id, $urltogo); // New method to autoselect project after a New on another form object creation
 						header("Location: " . $urltogo);
-						exit;
 					} else {
 						// Creation task KO
 						if (!empty($task->errors)) setEventMessages(null, $task->errors, 'errors');
@@ -125,23 +125,33 @@ if (!$error && $action == 'add' && $permissiontoadd) {
 }
 
 if (!$error && $action == 'saveRisk' && $permissiontoadd) {
-	$riskID      = GETPOST('riskID');
-	$description = GETPOST('riskComment', 'restricthtml');
-	$category    = GETPOST('riskCategory');
+
+	$data = json_decode(file_get_contents('php://input'), true);
+
+	$riskID      = $data['riskID'];
+	$description = $data['comment'];
+	$category    = $data['category'];
+	$digiriskelement = new DigiriskElement($db);
+
+	if (dol_strlen($data['newParent'])) {
+		$parent_element = $digiriskelement->fetchAll('','',0,0, array('ref' => $data['newParent']));
+		$parent_id = array_keys($parent_element)[0];
+	}
 
 	$risk->fetch($riskID);
-
+	if($parent_id > 0) {
+		$risk->fk_element = $parent_id;
+	}
 	$risk->description =  $description;
 	$risk->category    = $category;
 
-	$result = $risk->update($user, true);
+	$result = $risk->update($user);
 
 	if ($result > 0) {
 		// Update risk OK
 		$urltogo = str_replace('__ID__', $result, $backtopage);
 		$urltogo = preg_replace('/--IDFORBACKTOPAGE--/', $id, $urltogo); // New method to autoselect project after a New on another form object creation
 		header("Location: ".$urltogo);
-		exit;
 	} else {
 		// Update risk KO
 		if (!empty($risk->errors)) setEventMessages(null, $risk->errors, 'errors');
@@ -183,7 +193,7 @@ if (!$error && ($massaction == 'delete' || ($action == 'delete' && $confirm == '
 				}
 			}
 
-			$result = $risk->delete($user, true);
+			$result = $risk->delete($user);
 
 			if ($result < 0) {
 				// Delete risk KO
@@ -201,12 +211,14 @@ if (!$error && ($massaction == 'delete' || ($action == 'delete' && $confirm == '
 }
 
 if (!$error && $action == 'addEvaluation' && $permissiontoadd) {
-	$evaluationComment  = GETPOST('evaluationComment', 'restricthtml');
-	$riskAssessmentDate = GETPOST('riskAssessmentDate');
-	$riskID             = GETPOST('riskToAssign');
-	$cotation           = GETPOST('cotation');
-	$method             = GETPOST('cotationMethod');
-	$photo              = GETPOST('photo');
+	$data = json_decode(file_get_contents('php://input'), true);
+
+	$evaluationComment  = $data['comment'];
+	$riskAssessmentDate = $data['date'];
+	$riskID             = $data['riskId'];
+	$cotation           = $data['cotation'];
+	$method             = $data['method'];
+	$photo              = $data['photo'];
 
 	$risktmp = new Risk($db);
 	$risktmp->fetch($riskID);
@@ -222,11 +234,11 @@ if (!$error && $action == 'addEvaluation' && $permissiontoadd) {
 	$evaluation->date_riskassessment = strtotime(preg_replace('/\//', '-',$riskAssessmentDate));
 
 	if ($method == 'advanced') {
-		$formation  = GETPOST('formation');
-		$protection = GETPOST('protection');
-		$occurrence = GETPOST('occurrence');
-		$gravite    = GETPOST('gravite');
-		$exposition = GETPOST('exposition');
+		$formation  = $data['criteres']['formation'];
+		$protection = $data['criteres']['protection'];
+		$occurrence = $data['criteres']['occurrence'];
+		$gravite    = $data['criteres']['gravite'];
+		$exposition = $data['criteres']['exposition'];
 
 		$evaluation->formation  = $formation;
 		$evaluation->protection = $protection;
@@ -267,14 +279,13 @@ if (!$error && $action == 'addEvaluation' && $permissiontoadd) {
 		}
 	}
 
-	$result = $evaluation->create($user, true);
+	$result = $evaluation->create($user);
 
 	if ($result > 0) {
 		// Creation evaluation OK
 		$urltogo = str_replace('__ID__', $result, $backtopage);
 		$urltogo = preg_replace('/--IDFORBACKTOPAGE--/', $id, $urltogo); // New method to autoselect project after a New on another form object creation
 		header("Location: ".$urltogo);
-		exit;
 	}
 	else {
 		// Creation evaluation KO
@@ -284,11 +295,14 @@ if (!$error && $action == 'addEvaluation' && $permissiontoadd) {
 }
 
 if (!$error && $action == 'saveEvaluation' && $permissiontoadd) {
-	$evaluationID       = GETPOST('evaluationID');
-	$cotation           = GETPOST('cotation');
-	$method             = GETPOST('cotationMethod');
-	$evaluationComment  = GETPOST('evaluationComment', 'restricthtml');
-	$riskAssessmentDate = GETPOST('riskAssessmentDate');
+
+	$data = json_decode(file_get_contents('php://input'), true);
+
+	$evaluationID       = $data['evaluationID'];
+	$cotation           = $data['cotation'];
+	$method             = $data['method'];
+	$evaluationComment  = $data['comment'];
+	$riskAssessmentDate = $data['date'];
 
 	$evaluation->fetch($evaluationID);
 
@@ -298,11 +312,11 @@ if (!$error && $action == 'saveEvaluation' && $permissiontoadd) {
 	$evaluation->date_riskassessment = strtotime(preg_replace('/\//', '-',$riskAssessmentDate));
 
 	if ($method == 'advanced') {
-		$formation  = GETPOST('formation');
-		$protection = GETPOST('protection');
-		$occurrence = GETPOST('occurrence');
-		$gravite    = GETPOST('gravite');
-		$exposition = GETPOST('exposition');
+		$formation  = $data['criteres']['formation'];
+		$protection = $data['criteres']['protection'];
+		$occurrence = $data['criteres']['occurrence'];
+		$gravite    = $data['criteres']['gravite'];
+		$exposition = $data['criteres']['exposition'];
 
 		$evaluation->formation  = $formation;
 		$evaluation->protection = $protection;
@@ -312,14 +326,13 @@ if (!$error && $action == 'saveEvaluation' && $permissiontoadd) {
 	}
 	$entity = ($conf->entity > 1) ? '/' . $conf->entity : '';
 
-	$result = $evaluation->update($user, true);
+	$result = $evaluation->update($user);
 
 	if ($result > 0) {
 		// Update evaluation OK
 		$urltogo = str_replace('__ID__', $result, $backtopage);
 		$urltogo = preg_replace('/--IDFORBACKTOPAGE--/', $id, $urltogo); // New method to autoselect project after a New on another form object creation
 		header("Location: ".$urltogo);
-		exit;
 	}
 	else {
 		// Update evaluation KO
@@ -350,7 +363,7 @@ if (!$error && $action == "deleteEvaluation" && $permissiontodelete) {
 	dol_delete_dir($pathToEvaluationPhoto);
 
 	$previousEvaluation = $evaluation;
-	$result = $evaluation->delete($user, true);
+	$result = $evaluation->delete($user);
 	$previousEvaluation->updateEvaluationStatus($user,$evaluation->fk_risk);
 
 	if ($result > 0) {

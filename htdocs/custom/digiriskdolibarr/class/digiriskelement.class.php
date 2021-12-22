@@ -70,14 +70,15 @@ class DigiriskElement extends CommonObject
 		'tms'           => array('type'=>'timestamp', 'label'=>'DateModification', 'enabled'=>'1', 'position'=>50, 'notnull'=>0, 'visible'=>-2,),
 		'import_key'    => array('type'=>'integer', 'label'=>'ImportId', 'enabled'=>'1', 'position'=>60, 'notnull'=>1, 'visible'=>-2,),
 		'status'        => array('type'=>'smallint', 'label'=>'Status', 'enabled'=>'1', 'position'=>70, 'notnull'=>1, 'default' => 1, 'visible'=>1, 'index'=>1,),
-		'label'         => array('type'=>'varchar(255)', 'label'=>'Label', 'enabled'=>'1', 'position'=>80, 'notnull'=>1, 'visible'=>1, 'searchall'=>1, 'css'=>'minwidth200', 'help'=>"Help text", 'showoncombobox'=>'1',),
+		'label'         => array('type'=>'varchar(255)', 'label'=>'Label', 'enabled'=>'1', 'position'=>80, 'notnull'=>1, 'visible'=>1, 'searchall'=>1, 'css'=>'minwidth400', 'help'=>"Help text", 'showoncombobox'=>'1',),
 		'description'   => array('type'=>'textarea', 'label'=>'Description', 'enabled'=>'1', 'position'=>90, 'notnull'=>0, 'visible'=>3,),
 		'element_type'  => array('type'=>'varchar(50)', 'label'=>'ElementType', 'enabled'=>'1', 'position'=>100, 'notnull'=>-1, 'visible'=>1,),
-		'photo'         => array('type'=>'varchar(255)', 'label'=>'Photo', 'enabled'=>'1', 'position'=>100, 'notnull'=>-1, 'visible'=>-2,),
+		'photo'         => array('type'=>'varchar(255)', 'label'=>'Photo', 'enabled'=>'1', 'position'=>105, 'notnull'=>-1, 'visible'=>-2,),
 		'fk_user_creat' => array('type'=>'integer:User:user/class/user.class.php', 'label'=>'UserAuthor', 'enabled'=>'1', 'position'=>110, 'notnull'=>1, 'visible'=>-2, 'foreignkey'=>'user.rowid',),
 		'fk_user_modif' => array('type'=>'integer:User:user/class/user.class.php', 'label'=>'UserModif', 'enabled'=>'1', 'position'=>120, 'notnull'=>-1, 'visible'=>-2,),
 		'fk_parent'     => array('type'=>'integer', 'label'=>'ParentElement', 'enabled'=>'1', 'position'=>130, 'notnull'=>1, 'visible'=>1, 'default'=>0,),
 		'fk_standard'   => array('type'=>'integer', 'label'=>'Standard', 'enabled'=>'1', 'position'=>140, 'notnull'=>1, 'visible'=>0, 'default'=>1,),
+		'rank'          => array('type'=>'integer', 'label'=>'Order', 'enabled'=>'1', 'position'=>150, 'notnull'=>1, 'visible'=>0),
 	);
 
 	public $rowid;
@@ -96,6 +97,7 @@ class DigiriskElement extends CommonObject
 	public $fk_user_modif;
 	public $fk_parent;
 	public $fk_standard;
+	public $rank;
 
 	/**
 	 * Constructor
@@ -539,5 +541,101 @@ class DigiriskElement extends CommonObject
 			dol_syslog(__METHOD__.' '.join(',', $this->errors), LOG_ERR);
 			return -1;
 		}
+	}
+
+	/**
+	 * 	Return clickable name (with picto eventually)
+	 *
+	 * 	@param	int		$withpicto		          0=No picto, 1=Include picto into link, 2=Only picto
+	 * 	@param	string	$option			          Variant where the link point to ('', 'nolink')
+	 * 	@param	int		$addlabel		          0=Default, 1=Add label into string, >1=Add first chars into string
+	 *  @param	string	$moreinpopup	          Text to add into popup
+	 *  @param	string	$sep			          Separator between ref and label if option addlabel is set
+	 *  @param	int   	$notooltip		          1=Disable tooltip
+	 *  @param  int     $save_lastsearch_value    -1=Auto, 0=No save of lastsearch_values when clicking, 1=Save lastsearch_values whenclicking
+	 *  @param	string	$morecss				  More css on a link
+	 * 	@return	string					          String with URL
+	 */
+	function getNomUrl($withpicto = 0, $option = '', $addlabel = 0, $moreinpopup = '', $sep = ' - ', $notooltip = 0, $save_lastsearch_value = -1, $morecss = '')
+	{
+		global $conf, $langs, $user, $hookmanager;
+
+		if (!empty($conf->dol_no_mouse_hover)) $notooltip = 1; // Force disable tooltips
+
+		$result = '';
+
+		$label = '';
+		if ($option != 'nolink') $label =  '<i class="fas fa-info-circle"></i> <u class="paddingrightonly">'.$langs->trans(ucwords($this->element_type, 'k')).'</u>';
+		$label .= ($label ? '<br>' : '').'<b>'.$langs->trans('Ref').': </b>'.$this->ref; // The space must be after the : to not being explode when showing the title in img_picto
+		$label .= ($label ? '<br>' : '').'<b>'.$langs->trans('Label').': </b>'.$this->label; // The space must be after the : to not being explode when showing the title in img_picto
+		if ($moreinpopup) $label .= '<br>'.$moreinpopup;
+
+		$url = dol_buildpath('/digiriskdolibarr/view/digiriskelement/digiriskelement_card.php', 1).'?id='.$this->id;
+
+		if ($option != 'nolink')
+		{
+			// Add param to save lastsearch_values or not
+			$add_save_lastsearch_values = ($save_lastsearch_value == 1 ? 1 : 0);
+			if ($save_lastsearch_value == -1 && preg_match('/list\.php/', $_SERVER["PHP_SELF"])) $add_save_lastsearch_values = 1;
+			if ($add_save_lastsearch_values) $url .= '&save_lastsearch_values=1';
+		}
+
+		$linkclose = '';
+		if ($option == 'blank'){
+			$linkclose .= ' target=_blank';
+		}
+
+		if (empty($notooltip) && $user->rights->digiriskdolibarr->digiriskelement->read)
+		{
+			if (!empty($conf->global->MAIN_OPTIMIZEFORTEXTBROWSER))
+			{
+				$label = $langs->trans("ShowDigiriskElement");
+				$linkclose .= ' alt="'.dol_escape_htmltag($label, 1).'"';
+			}
+			$linkclose .= ' title="'.dol_escape_htmltag($label, 1).'"';
+			$linkclose .= ' class="classfortooltip'.($morecss ? ' '.$morecss : '').'"';
+		}
+		else $linkclose = ($morecss ? ' class="'.$morecss.'"' : '');
+
+		$linkstart = '<a href="'.$url.'"';
+		$linkstart .= $linkclose.'>';
+		$linkend = '</a>';
+
+		$result .= $linkstart;
+		if ($withpicto) $result .= '<i class="fas fa-info-circle"></i>' . ' ';
+		if ($withpicto != 2) $result .= $this->ref;
+		if ($withpicto != 2) $result .= (($addlabel && $this->label) ? $sep.dol_trunc($this->label, ($addlabel > 1 ? $addlabel : 0)) : '');
+		$result .= $linkend;
+
+		global $action;
+		$hookmanager->initHooks(array('digiriskelementtdao'));
+		$parameters = array('id'=>$this->id, 'getnomurl'=>$result);
+		$reshook = $hookmanager->executeHooks('getNomUrl', $parameters, $this, $action); // Note that $action and $this may have been modified by some hooks
+		if ($reshook > 0) $result = $hookmanager->resPrint;
+		else $result .= $hookmanager->resPrint;
+
+		return $result;
+	}
+
+	/**
+	 * 	Return list of deleted elements
+	 *
+	 * 	@param	bool   $only_ids
+	 * 	@return	array  Array with ids
+	 */
+	function getTrashList($only_ids = true)
+	{
+		global $conf, $langs, $user, $hookmanager;
+		$objects = $this->fetchAll('',  'rank',  0,  0);
+		$recurse_tree = recurse_tree($this->id, 0, $objects);
+		$ids = [];
+
+		array_walk_recursive($recurse_tree, 	function($item, $key) use (&$ids) {
+			if (is_object($item)) {
+				$ids[ $item->id] = $item->id;
+			}
+		}, $ids);
+
+		return $ids;
 	}
 }
